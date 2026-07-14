@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pycache
+*.swp
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment / virtualenv
+venv/
+env/
+.venv/
+.env/
+
+# PyTorch / Torch Geometric
+*.pt
+*.pth
+
+# Data
+data/
+*.csv
+*.npz
+*.npy
+*.h5
+*.db
+*.zip
+
+# Run artifacts
+results/full_run_log.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# IDEs
+.vscode/
+.idea/

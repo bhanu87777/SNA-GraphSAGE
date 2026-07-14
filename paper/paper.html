@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Enhanced Social Network Analysis with Graph Neural Networks</title>
+<style>
+  @page { size: letter; margin: 0.7in 0.62in; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 10pt;
+    line-height: 1.16;
+    color: #000;
+    text-align: justify;
+  }
+  .titleblock { text-align: center; margin-bottom: 14pt; }
+  .titleblock h1 { font-size: 21pt; font-weight: normal; margin-bottom: 10pt; }
+  .titleblock .author { font-size: 11pt; margin-bottom: 2pt; }
+  .titleblock .affil { font-size: 10pt; font-style: italic; }
+  .cols { column-count: 2; column-gap: 0.24in; }
+  .abstract { font-weight: bold; font-size: 9pt; margin-bottom: 8pt; }
+  .keywords { font-weight: bold; font-style: italic; font-size: 9pt; margin-bottom: 10pt; }
+  h2 {
+    font-size: 10pt; font-weight: normal; font-variant: small-caps;
+    text-align: center; margin: 10pt 0 5pt 0;
+  }
+  h3 { font-size: 10pt; font-weight: normal; font-style: italic; margin: 7pt 0 4pt 0; }
+  p { text-indent: 1.2em; margin-bottom: 1pt; }
+  p.noindent { text-indent: 0; }
+  .eq {
+    text-align: center; text-indent: 0; margin: 5pt 0;
+    font-style: italic;
+  }
+  .eq .eqno { float: right; font-style: normal; }
+  figure { break-inside: avoid; margin: 7pt 0; text-align: center; }
+  figure img { width: 96%; }
+  figcaption { font-size: 8pt; text-align: justify; margin-top: 3pt; }
+  .tablewrap { break-inside: avoid; margin: 7pt 0; }
+  .tcaption {
+    font-size: 8pt; text-align: center; font-variant: small-caps;
+    margin-bottom: 3pt;
+  }
+  table { border-collapse: collapse; margin: 0 auto; font-size: 8.5pt; }
+  th, td { border-top: 0.7pt solid #000; border-bottom: 0.7pt solid #000;
+           padding: 2pt 6pt; text-align: center; }
+  thead th { border-bottom: 0.7pt solid #000; }
+  tbody tr td { border: none; }
+  tbody tr:last-child td { border-bottom: 0.7pt solid #000; }
+  .refs { font-size: 8pt; }
+  .refs ol { margin-left: 14pt; }
+  .refs li { margin-bottom: 2pt; text-align: justify; }
+  b.run-in { font-weight: bold; }
+</style>
+</head>
+<body>
+
+<div class="titleblock">
+  <h1>Enhanced Social Network Analysis with Graph Neural Networks:<br>
+  Architectures, Structural Features, and Degree-Adaptive Sampling</h1>
+  <div class="author">Bhanu Prakash M</div>
+  <div class="affil">e-mail: bhanu.m@leadsquared.com</div>
+</div>
+
+<div class="cols">
+
+<p class="abstract noindent">Abstract—Node classification in social networks is a core task of
+social network analysis (SNA). Prior work showed that GraphSAGE, an inductive graph neural
+network (GNN), outperforms traditional feature-only and structure-only classifiers on this
+task. This paper extends that line of work in four directions. First, we benchmark four GNN
+architectures (GraphSAGE, GCN, GAT, GIN) under a methodologically sound protocol with
+validation-based model selection, early stopping, and multi-seed reporting. Second, we inject
+eight classical SNA structural descriptors (PageRank, betweenness, k-core, clustering
+coefficient, among others) as node features and measure their contribution through an ablation
+study. Third, we implement the degree-adaptive neighbor-sampling rule
+S<sub>i</sub> = c + ⌊N<sub>i</sub>·w⌋ and show it yields a +2.0 point gain over fixed
+fan-out sampling. Fourth, we evaluate the learned representations beyond classification, on
+link prediction (ROC-AUC 0.831) and unsupervised community detection, where clustering
+GraphSAGE embeddings (NMI 0.574) substantially outperforms both Louvain modularity
+maximization (NMI 0.448) and clustering on raw attributes (NMI 0.147). On the Cora citation
+network, attention-based aggregation is the strongest neighborhood operator (80.4% accuracy),
+combining raw attributes with structural features improves accuracy to 79.1% with reduced
+variance, and accuracy saturates at three message-passing layers, confirming that distant
+nodes contribute little signal.</p>
+
+<p class="keywords noindent">Keywords—graph neural networks; GraphSAGE; social network analysis;
+node classification; link prediction; community detection</p>
+
+<h2>I. Introduction</h2>
+<p>Social networks structure much of modern online life, and analyzing them—classifying
+users, predicting relationships, discovering communities—has direct applications in
+advertising, content moderation, and public-opinion monitoring. Classical approaches split
+into two families: feature-based classifiers that ignore the graph (e.g., logistic
+regression on user attributes) and structure-based embedding methods that ignore attributes
+(e.g., DeepWalk [6]). Graph neural networks unify the two by propagating attribute
+information along edges, and Xiao et al. [1] demonstrated on Weibo data that GraphSAGE [2]
+outperforms both families for social network node classification.</p>
+<p>This paper builds on [1] and deepens it along four axes. (i) <i>Breadth of models:</i> we
+compare GraphSAGE against GCN [3], GAT [4], and GIN [5] under a single training protocol,
+and extend the aggregator study of [1] (mean/pool/LSTM) with learned attention. (ii)
+<i>Explicit structural signal:</i> GNN message passing captures local structure implicitly;
+we test whether classical SNA descriptors—centralities, clustering, coreness—carry
+complementary signal when concatenated to raw attributes. (iii) <i>Adaptive sampling:</i> we
+implement the degree-proportional sampling rule proposed in [1] and quantify its effect.
+(iv) <i>Beyond classification:</i> we evaluate the same encoder on link prediction and
+unsupervised community detection, two canonical SNA tasks absent from [1].</p>
+<p>We additionally correct a common methodological weakness: reporting the best test
+accuracy observed during training, which implicitly tunes on the test set. All results here
+select the model at the best <i>validation</i> epoch and report test metrics as mean ±
+standard deviation over three random seeds.</p>
+
+<h2>II. Dataset and Problem Statement</h2>
+<p>Experiments use the Cora citation network [8], a standard public benchmark whose
+structure mirrors a social graph: 2,708 nodes (documents/users), 5,278 undirected edges
+(links), 1,433-dimensional binary bag-of-words node attributes, and 7 classes. We use the
+standard Planetoid split: 140 training, 500 validation, and 1,000 test nodes. Given
+G = (V, E, X) with labels on a small subset of V, the tasks are: (a) predict the labels of
+unlabeled nodes; (b) predict held-out edges; (c) recover the latent community structure
+without labels.</p>
+
+<h2>III. Methodology</h2>
+<h3>A. Message-Passing Architectures</h3>
+<p>All models follow the message-passing template: at layer k, each node aggregates its
+(sampled) neighborhood and combines the result with its own state,</p>
+<p class="eq">h<sup>k</sup><sub>N(v)</sub> = AGG<sub>k</sub>({h<sup>k−1</sup><sub>u</sub>, ∀u ∈ N(v)}) <span class="eqno">(1)</span></p>
+<p class="eq">h<sup>k</sup><sub>v</sub> = σ(W<sup>k</sup> · CONCAT(h<sup>k−1</sup><sub>v</sub>, h<sup>k</sup><sub>N(v)</sub>)) <span class="eqno">(2)</span></p>
+<p class="noindent">which is GraphSAGE [2]; we evaluate mean, max-pool, and sum instantiations of AGG.
+GCN [3] replaces (1)–(2) with a symmetric-normalized sum over the closed neighborhood. GAT [4]
+learns the aggregation weights via attention,</p>
+<p class="eq">α<sub>uv</sub> = softmax<sub>u∈N(v)</sub>(LeakyReLU(a<sup>T</sup>[Wh<sub>v</sub> ‖ Wh<sub>u</sub>])) <span class="eqno">(3)</span></p>
+<p class="noindent">with 8 attention heads. GIN [5], the provably most expressive architecture in this
+family, uses</p>
+<p class="eq">h<sup>k</sup><sub>v</sub> = MLP<sup>k</sup>((1+ε<sup>k</sup>)·h<sup>k−1</sup><sub>v</sub> + Σ<sub>u∈N(v)</sub> h<sup>k−1</sup><sub>u</sub>). <span class="eqno">(4)</span></p>
+<p>Unless stated otherwise all models use 2 layers, 128 hidden units, dropout 0.5, Adam
+with learning rate 0.01 and weight decay 5·10<sup>−4</sup>, at most 300 epochs with early
+stopping (patience 30) on validation accuracy.</p>
+
+<h3>B. Structural (SNA) Node Features</h3>
+<p>We compute eight classical descriptors per node: degree, log-degree, local clustering
+coefficient, PageRank, approximate betweenness centrality (128 pivots), eigenvector
+centrality, k-core number, and average neighbor degree. Each is z-score standardized and
+concatenated to the raw attribute vector, growing it from 1,433 to 1,441 dimensions. The
+ablation compares raw attributes only, structural features only, and their concatenation.</p>
+
+<h3>C. Degree-Adaptive Neighbor Sampling</h3>
+<p>GraphSAGE samples a fixed number of neighbors per layer. Reference [1] proposed making
+the sample size proportional to a node's degree N<sub>i</sub>,</p>
+<p class="eq">S<sub>i</sub> = min(S<sub>max</sub>, c + ⌊N<sub>i</sub> · w⌋), <span class="eqno">(5)</span></p>
+<p class="noindent">so that hubs contribute proportionally more neighbors. Their Weibo graph contains
+hubs with millions of followers (w = 0.001); citation-graph degrees are small (mean 3.9), so
+we rescale to c = 5, w = 0.5, S<sub>max</sub> = 25. Training is mini-batch: 64 seed nodes per
+step, two-hop layered sampling, loss computed on seeds only.</p>
+
+<h3>D. Link Prediction</h3>
+<p>A 2-layer GraphSAGE encoder produces embeddings z from training edges only; a candidate
+edge (u, v) is scored by the dot-product decoder p(u,v) = σ(z<sub>u</sub><sup>T</sup>z<sub>v</sub>).
+Edges are split 85/5/10 (train/val/test) with 1:1 negatives. Critically, training negatives
+are re-sampled every epoch: with a fixed negative set the encoder memorizes it and test
+ROC-AUC degrades from 0.831 to 0.730.</p>
+
+<h3>E. Community Detection</h3>
+<p>We compare three unsupervised approaches against the ground-truth classes using
+normalized mutual information (NMI) and adjusted Rand index (ARI): Louvain modularity
+maximization [7] on the bare graph (structure only), K-means on raw attributes (content
+only), and K-means (k = 7) on trained GraphSAGE embeddings (structure + content).</p>
+
+<h2>IV. Experiments and Results</h2>
+<h3>A. Architectures vs. Traditional Baselines</h3>
+<p>Table I confirms the central claim of [1] with a wider model set: methods that fuse
+attributes and structure dominate. Logistic regression (attributes only) reaches 57.6% and
+DeepWalk (structure only) 69.6%, while every GNN except GIN exceeds 78%. GCN is strongest
+(80.7%), with GAT statistically indistinguishable (80.4%). GIN's sum aggregation without
+normalization is less suited to this attribute distribution and exhibits 6× higher variance.
+Fig. 1 shows the comparison; Fig. 2 shows training behavior and the test confusion matrix of
+the GraphSAGE reference model.</p>
+
+<div class="tablewrap">
+<div class="tcaption">Table I. Node classification on Cora (mean ± std, 3 seeds)</div>
+<table>
+<thead><tr><th>Model</th><th>Accuracy</th><th>Macro-F1</th></tr></thead>
+<tbody>
+<tr><td>Logistic Regression (attributes)</td><td>0.576</td><td>—</td></tr>
+<tr><td>DeepWalk + LR (structure)</td><td>0.696</td><td>—</td></tr>
+<tr><td>GIN</td><td>0.706 ± 0.054</td><td>0.682 ± 0.084</td></tr>
+<tr><td>GraphSAGE</td><td>0.784 ± 0.008</td><td>0.777 ± 0.005</td></tr>
+<tr><td>GAT</td><td>0.804 ± 0.004</td><td>0.798 ± 0.006</td></tr>
+<tr><td><b>GCN</b></td><td><b>0.807 ± 0.008</b></td><td><b>0.800 ± 0.006</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<figure>
+<img src="../figures/GNN_architecture_comparison.png" alt="architecture comparison">
+<figcaption>Fig. 1. Test accuracy of four GNN architectures on Cora (error bars: std over
+3 seeds).</figcaption>
+</figure>
+
+<figure>
+<img src="../figures/GraphSAGE_curves.png" alt="training curves">
+<img src="../figures/GraphSAGE_test_confusion.png" alt="confusion matrix" style="width:70%">
+<figcaption>Fig. 2. GraphSAGE reference model (seed 42). Top: training loss and accuracy
+curves; early stopping selects the best-validation epoch, and the gap between train and
+val/test accuracy reflects the 140-label training regime. Bottom: confusion matrix on the
+1,000 test nodes.</figcaption>
+</figure>
+
+<h3>B. Aggregator Comparison</h3>
+<p>Reference [1] compared mean, pooling, and LSTM aggregators. Table II repeats this study
+with the aggregators available in our framework plus learned attention. Fixed aggregators
+cluster between 76–78%, while attention reaches 80.4% with the lowest variance—the
+neighborhood weighting itself is worth learning, a natural upgrade of the paper's
+fixed-function comparison.</p>
+
+<div class="tablewrap">
+<div class="tcaption">Table II. Aggregation functions (mean ± std, 3 seeds)</div>
+<table>
+<thead><tr><th>Aggregator</th><th>Accuracy</th></tr></thead>
+<tbody>
+<tr><td>SAGE max (pool)</td><td>0.764 ± 0.020</td></tr>
+<tr><td>SAGE sum</td><td>0.770 ± 0.010</td></tr>
+<tr><td>SAGE mean</td><td>0.784 ± 0.008</td></tr>
+<tr><td><b>Attention (GAT, 8 heads)</b></td><td><b>0.804 ± 0.004</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>C. Structural Feature Ablation</h3>
+<p>Table III isolates the value of explicit SNA descriptors. Alone, eight structural
+dimensions reach 34.8%—half of what 1,433 attribute dimensions achieve, a remarkable
+density of signal. Concatenated with raw attributes they add +0.7 points and reduce seed
+variance by 2.4×, indicating that centrality and coreness encode positional information the
+bag-of-words attributes lack and that two message-passing hops do not fully recover.</p>
+
+<div class="tablewrap">
+<div class="tcaption">Table III. SNA feature ablation (GraphSAGE, 3 seeds)</div>
+<table>
+<thead><tr><th>Node features</th><th>Dim.</th><th>Accuracy</th></tr></thead>
+<tbody>
+<tr><td>SNA structural only</td><td>8</td><td>0.348 ± 0.011</td></tr>
+<tr><td>Raw attributes</td><td>1433</td><td>0.784 ± 0.008</td></tr>
+<tr><td><b>Raw + SNA</b></td><td>1441</td><td><b>0.791 ± 0.003</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<figure>
+<img src="../figures/SNA_feature_ablation.png" alt="feature ablation">
+<figcaption>Fig. 3. Ablation of raw attributes vs. structural SNA features.</figcaption>
+</figure>
+
+<h3>D. Depth and Label Efficiency</h3>
+<p>Table IV varies the number of message-passing layers K. Accuracy rises steeply from one
+to three hops and saturates thereafter (3 layers: 80.6%; 4 layers: 80.4%), consistent with
+the observation in [1] that distant users have little influence on the current user, and
+with the oversmoothing literature. Table V varies the fraction of training labels: the model
+degrades gracefully to 40% of labels (73.4%) but collapses at 5% (7 labels, roughly one per
+class).</p>
+
+<div class="tablewrap">
+<div class="tcaption">Table IV. Effect of depth K (GraphSAGE, 3 seeds)</div>
+<table>
+<thead><tr><th>K</th><th>1</th><th>2</th><th>3</th><th>4</th></tr></thead>
+<tbody>
+<tr><td>Acc.</td><td>0.702</td><td>0.784</td><td><b>0.806</b></td><td>0.804</td></tr>
+<tr><td>± std</td><td>0.002</td><td>0.008</td><td>0.002</td><td>0.006</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="tablewrap">
+<div class="tcaption">Table V. Accuracy vs. fraction of training labels</div>
+<table>
+<thead><tr><th>Labels</th><th>5%</th><th>10%</th><th>20%</th><th>40%</th><th>100%</th></tr></thead>
+<tbody>
+<tr><td>Acc.</td><td>0.134</td><td>0.597</td><td>0.622</td><td>0.734</td><td>0.813</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>E. Fixed vs. Degree-Adaptive Sampling</h3>
+<p>Table VI compares two-hop mini-batch training with fixed fan-out [10, 10] against the
+adaptive rule (5). Adaptive sampling gains +2.0 points (81.9% vs. 79.9%)—a substantially
+larger margin than the +0.26 reported on Weibo in [1], suggesting the rule is more valuable
+when the fan-out budget is small relative to hub degrees.</p>
+
+<div class="tablewrap">
+<div class="tcaption">Table VI. Neighbor sampling strategy</div>
+<table>
+<thead><tr><th>Strategy</th><th>Accuracy</th></tr></thead>
+<tbody>
+<tr><td>Fixed fan-out [10, 10]</td><td>0.799</td></tr>
+<tr><td><b>Adaptive S<sub>i</sub> = 5 + ⌊0.5·N<sub>i</sub>⌋, cap 25</b></td><td><b>0.819</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>F. Link Prediction</h3>
+<p>The GraphSAGE encoder with dot-product decoding attains test ROC-AUC 0.831 and average
+precision 0.835 on held-out edges (Table VII). Re-sampling negatives each epoch is
+essential: with a fixed negative set, validation AUC peaks around epoch 50 and then decays,
+leaving test AUC at only 0.730.</p>
+
+<div class="tablewrap">
+<div class="tcaption">Table VII. Link prediction on held-out edges</div>
+<table>
+<thead><tr><th>Training negatives</th><th>ROC-AUC</th><th>Avg. Precision</th></tr></thead>
+<tbody>
+<tr><td>Fixed set</td><td>0.730</td><td>0.688</td></tr>
+<tr><td><b>Re-sampled per epoch</b></td><td><b>0.831</b></td><td><b>0.835</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>G. Community Detection</h3>
+<p>Table VIII scores three unsupervised methods against the ground-truth classes. Louvain,
+using structure alone, finds 102 fine-grained communities (NMI 0.448 but ARI only 0.262 due
+to over-partitioning). K-means on raw attributes performs poorly (NMI 0.147). K-means on
+GraphSAGE embeddings—which fuse both sources—clearly dominates (NMI 0.574, ARI 0.559).
+Fig. 4 visualizes the embedding space: detected communities align closely with true
+classes.</p>
+
+<div class="tablewrap">
+<div class="tcaption">Table VIII. Community detection vs. ground truth</div>
+<table>
+<thead><tr><th>Method</th><th>NMI</th><th>ARI</th></tr></thead>
+<tbody>
+<tr><td>K-means, raw attributes</td><td>0.147</td><td>0.068</td></tr>
+<tr><td>Louvain (102 communities)</td><td>0.448</td><td>0.262</td></tr>
+<tr><td><b>K-means, GraphSAGE embeddings</b></td><td><b>0.574</b></td><td><b>0.559</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<figure>
+<img src="../figures/GraphSAGE_tSNE_true_labels.png" alt="tsne true">
+<img src="../figures/GraphSAGE_tSNE_detected_communities.png" alt="tsne detected">
+<figcaption>Fig. 4. t-SNE [9] projection of learned GraphSAGE embeddings colored by true
+classes (top) and by K-means communities detected without labels (bottom). The detected
+partition recovers the latent class structure (NMI 0.574).</figcaption>
+</figure>
+
+<h2>V. Conclusion</h2>
+<p>We extended GraphSAGE-based social network analysis into a broader, methodologically
+rigorous framework. Four findings stand out. First, the advantage of GNNs over feature-only
+and structure-only baselines (+11 to +23 points) is robust across four architectures, and
+learned attention is the best neighborhood aggregator. Second, classical SNA
+descriptors—cheap to compute and only eight-dimensional—still add measurable accuracy and
+stability on top of a GNN, showing that explicit positional signal complements learned
+message passing. Third, the degree-adaptive sampling rule of prior work generalizes beyond
+its original setting and yields a +2.0 point gain under small fan-out budgets. Fourth, a
+single supervised encoder transfers to link prediction (AUC 0.831) and to community
+detection, where clustering its embeddings beats dedicated structure-only algorithms by a
+wide margin. Future work includes jumping-knowledge connections to push past the
+three-layer saturation point, evaluation on larger heterogeneous social graphs, and
+self-supervised pre-training of the encoder.</p>
+
+<h2>References</h2>
+<div class="refs">
+<ol>
+<li>L. Xiao, X. Wu, and G. Wang, "Social network analysis based on GraphSAGE," in
+<i>Proc. 12th Int. Symp. Computational Intelligence and Design (ISCID)</i>, 2019,
+pp. 196–199.</li>
+<li>W. L. Hamilton, R. Ying, and J. Leskovec, "Inductive representation learning on large
+graphs," in <i>Advances in Neural Information Processing Systems</i>, 2017.</li>
+<li>T. N. Kipf and M. Welling, "Semi-supervised classification with graph convolutional
+networks," in <i>Proc. ICLR</i>, 2017.</li>
+<li>P. Veličković, G. Cucurull, A. Casanova, A. Romero, P. Liò, and Y. Bengio, "Graph
+attention networks," in <i>Proc. ICLR</i>, 2018.</li>
+<li>K. Xu, W. Hu, J. Leskovec, and S. Jegelka, "How powerful are graph neural networks?"
+in <i>Proc. ICLR</i>, 2019.</li>
+<li>B. Perozzi, R. Al-Rfou, and S. Skiena, "DeepWalk: Online learning of social
+representations," in <i>Proc. KDD</i>, 2014, pp. 701–710.</li>
+<li>V. D. Blondel, J.-L. Guillaume, R. Lambiotte, and E. Lefebvre, "Fast unfolding of
+communities in large networks," <i>J. Stat. Mech.</i>, 2008.</li>
+<li>Z. Yang, W. W. Cohen, and R. Salakhutdinov, "Revisiting semi-supervised learning with
+graph embeddings," in <i>Proc. ICML</i>, 2016.</li>
+<li>L. van der Maaten and G. Hinton, "Visualizing data using t-SNE," <i>J. Mach. Learn.
+Res.</i>, vol. 9, pp. 2579–2605, 2008.</li>
+</ol>
+</div>
+
+</div>
+</body>
+</html>
